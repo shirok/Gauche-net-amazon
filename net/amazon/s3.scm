@@ -17,26 +17,41 @@
   (use rfc.base64)
   (use rfc.http)
   (use util.list)
+  (use text.tree)
   (use sxml.ssax)
   (use sxml.sxpath)
   (use sxml.tools)
   (extend net.amazon.base)
-  (export s3-bucket-list     s3-bucket-list-x
+  (export s3-bucket-list     s3-bucket-list/sxml
           s3-bucket-availability
-          s3-bucket-create!  s3-bucket-create-x!
-          s3-bucket-delete!  s3-bucket-delete-x!
-          s3-bucket-location s3-bucket-location-x
-          s3-object-list     s3-object-list-x
-          s3-object-get      s3-object-get-x
+          s3-bucket-create!  s3-bucket-create/sxml!
+          s3-bucket-delete!  s3-bucket-delete/sxml!
+          s3-bucket-location s3-bucket-location/sxml
+          s3-object-list     s3-object-list/sxml
+          s3-object-get      s3-object-get/sxml
           s3-object-head
-          s3-object-put!     s3-object-put-x!
-          s3-object-copy!    s3-object-copy-x!
-          s3-object-delete!  s3-object-delete-x!
+          s3-object-put!     s3-object-put/sxml!
+          s3-object-copy!    s3-object-copy/sxml!
+          s3-object-delete!  s3-object-delete/sxml!
           s3-auth-header-value
           s3-signature s3-sign-string s3-string-to-sign))
 (select-module net.amazon.s3)
 
 (define *s3-endpoint* "s3.amazonaws.com")
+
+;; In general, two procedures are provided for each S3 API.
+;; A procedure with /sxml suffix returns two values: the SXML of
+;; Amazon's response, and the list of headers (in the form that
+;; rfc822-header-ref can be used).  You can get complete information
+;; from those values.
+;; A procedure without /sxml suffix is a convenience procedure;
+;; it extracts and returns the value that are handy for typical
+;; applications.  For example, s3-bucket-list returns a list of
+;; (<bucket-name> <creation-date>), where <cretion-date> is Gauche's
+;; <date> object.
+;; We hope the convenience interface is sufficient for most tasks,
+;; though it does drop auxiliary information, and you may need to
+;; use /sxml interface time to time.
 
 ;;-------------------------------------------------------------------
 ;; Operations
@@ -46,19 +61,19 @@
 
 ;; Returns ((Name Date) ...)
 (define (s3-bucket-list)
-  (receive (sxml _) (s3-bucket-list-x)
+  (receive (sxml _) (s3-bucket-list/sxml)
     (map (^s (list ((if-car-sxpath '(// aws:Name *text*)) (list s))
                    (iso-8601-date->date
                     ((if-car-sxpath '(// aws:CreationDate *text*)) (list s)))))
          ((sxpath '(// aws:Bucket)) sxml))))
 
 ;; Returns Sxml and Headers
-(define (s3-bucket-list-x)
+(define (s3-bucket-list/sxml)
   (values-ref (s3-request-response 'GET #f "/" '()) 2 1))
 
 ;; Returns either 'used, 'available or 'taken.
 (define (s3-bucket-availability bucket)
-  (receive (status headers response)
+  (receive (status hdrs response)
       (s3-request-response 'HEAD bucket "/" '(("max-keys" 0)))
     (cond
      [(equal? status "200") 'used]
@@ -68,36 +83,36 @@
                    "Access failed (~a)" status)])))
 
 (define (s3-bucket-create! bucket :key (location #f))
-  (s3-bucket-create-x! bucket :location location)
+  (s3-bucket-create/sxml! bucket :location location)
   (values))
 
-(define (s3-bucket-create-x! bucket :key (location #f))
+(define (s3-bucket-create/sxml! bucket :key (location #f))
   (define body (if location
                  `(CreateBucketConfiguration (LocationConstraint ,location))
                  ""))
   (values-ref (s3-request-response 'PUT bucket "/" '() body) 2 1))
 
 (define (s3-bucket-delete! bucket)
-  (s3-bucket-delete-x bucket)
+  (s3-bucket-delete/sxml! bucket)
   (values))
 
-(define (s3-bucket-delete-x! bucket)
+(define (s3-bucket-delete/sxml! bucket)
   (values-ref (s3-request-response 'DELETE bucket "/" '()) 2 1))
 
 (define (s3-bucket-location bucket)
   ((if-car-sxpath '(// aws:LocationConstraint *text*))
-   (values-ref (s3-bucket-location-x bucket) 0)))
+   (values-ref (s3-bucket-location/sxml bucket) 0)))
 
-(define (s3-bucket-location-x bucket)
+(define (s3-bucket-location/sxml bucket)
   (values-ref (s3-request-response 'GET bucket "/?location" '()) 2 1))
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;(define (s3-object-list bucket  :key (prefix #f) (marker #f)
-;                                         (max-keys #f) (delimiter #f))
-;  (let1 ((
+(define (s3-object-list bucket :key (prefix #f) (marker #f)
+                                    (max-keys #f) (delimiter #f))
+  (error "writeme"))
 
-(define (s3-object-list-x bucket :key (prefix #f) (marker #f)
+(define (s3-object-list/sxml bucket :key (prefix #f) (marker #f)
                                                (max-keys #f) (delimiter #f))
   (let1 q (http-compose-query "/"
                               (cond-list [prefix @ `((prefix ,prefix))]
@@ -106,7 +121,36 @@
                                          [delimiter @ `((delimiter ,delimiter))]))
     (values-ref (s3-request-response 'GET bucket q '()) 2 1)))
 
-;(define (s3-object-put!-x bucket key http-put
+(define (s3-object-put! bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-put/sxml! bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-get bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-get/sxml bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-head bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-head/sxml bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-copy! bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-copy/sxml! bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-delete! bucket . other-args)
+  (error "writeme"))
+
+(define (s3-object-delete/sxml! bucket . other-args)
+  (error "writeme"))
+
 
 ;;-------------------------------------------------------------------
 ;; Common Request-response handling

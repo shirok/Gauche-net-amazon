@@ -14,9 +14,9 @@
 (define (test-sig verb headers bucket resource string signature)
   (define secret "uV3F3YluFJax1cknvbcGwgjvx4QpvB+leU8dUj2o")
   (test* #`"string-to-sign ,verb ,resource" string
-         (aws-s3-string-to-sign verb headers bucket resource #f))
+         (s3-string-to-sign verb headers bucket resource #f))
   (test* #`"signature ,verb ,resource" signature
-         (aws-s3-signature verb headers bucket resource :secret secret)))
+         (s3-signature verb headers bucket resource :secret secret)))
 
 (test-sig "GET" '(("Host" "johnsmith.s3.amazonaws.com")
                   ("Date" "Tue, 27 Mar 2007 19:36:42 +0000"))
