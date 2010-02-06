@@ -3,7 +3,7 @@
 ;;;
 
 ;; Usually the user program doesn't need to use this module directly,
-;; for other service-specific modules (e.g. net.amazon.s3) extends this.
+;; for other service-specific modules (e.g. net.amazon.s3) extend this.
 
 (define-module net.amazon.base
   (use gauche.parameter)
