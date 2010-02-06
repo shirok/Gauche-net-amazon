@@ -1,0 +1,5 @@
+This module provides Gauche programs convenient access methods to 
+Amazon Web Services.  Currently only a part of S3 interface is implemented.
+
+To access to S3 API that requires authentication, the client program has
+to set two parameters, aws-access-key-id and aws-secret-access-key.
