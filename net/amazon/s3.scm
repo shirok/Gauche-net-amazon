@@ -28,11 +28,11 @@
           s3-bucket-delete!  s3-bucket-delete/sxml!
           s3-bucket-location s3-bucket-location/sxml
           s3-object-list     s3-object-list/sxml
-          s3-object-get      s3-object-get/sxml
+          s3-object-get
           s3-object-head
-          s3-object-put!     s3-object-put/sxml!
+          s3-object-put!
           s3-object-copy!    s3-object-copy/sxml!
-          s3-object-delete!  s3-object-delete/sxml!
+          s3-object-delete!
           s3-auth-header-value
           s3-signature s3-sign-string s3-string-to-sign))
 (select-module net.amazon.s3)
@@ -56,6 +56,7 @@
 ;;-------------------------------------------------------------------
 ;; Operations
 ;;
+;; AWS API spec: http://docs.amazonwebservices.com/AmazonS3/2006-03-01/API/index.html
 
 ;; Buckets ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -109,8 +110,12 @@
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (s3-object-list bucket :key (prefix #f) (marker #f)
-                                    (max-keys #f) (delimiter #f))
-  (error "writeme"))
+                        (max-keys #f) (delimiter #f))
+  (receive (sxml _) (s3-object-list/sxml bucket
+                                         :prefix prefix :marker marker
+                                         :max-keys max-keys
+                                         :delimiter delimiter)
+    ((sxpath '(// aws:Key *text*)) sxml)))
 
 (define (s3-object-list/sxml bucket :key (prefix #f) (marker #f)
                                                (max-keys #f) (delimiter #f))
@@ -121,36 +126,27 @@
                                          [delimiter @ `((delimiter ,delimiter))]))
     (values-ref (s3-request-response 'GET bucket q '()) 2 1)))
 
-(define (s3-object-put! bucket . other-args)
-  (error "writeme"))
+(define (s3-object-put! bucket id data . other-args)
+  (s3-request-response 'PUT bucket #`"/,|id|" '() data)
+  (values))
 
-(define (s3-object-put/sxml! bucket . other-args)
-  (error "writeme"))
+(define (s3-object-get bucket id . other-args)
+  (s3-request-response 'GET bucket #`"/,|id|" '()))
 
-(define (s3-object-get bucket . other-args)
-  (error "writeme"))
+(define (s3-object-head bucket id . other-args)
+  (values-ref (s3-request-response 'HEAD bucket #`"/,|id|" '()) 1))
 
-(define (s3-object-get/sxml bucket . other-args)
-  (error "writeme"))
+(define (s3-object-copy! bucket src dstid . other-args)
+  (and ((if-car-sxpath '(// CopyObjectResult *text*))
+        (s3-object-copy/sxml! bucket src dstid))
+       #t))
 
-(define (s3-object-head bucket . other-args)
-  (error "writeme"))
+(define (s3-object-copy/sxml! bucket src dstid . other-args)
+  (values-ref (s3-request-response 'PUT bucket #`"/,|dstid|"
+                                   `(("x-amz-copy-source" ,src)) "") 2 1))
 
-(define (s3-object-head/sxml bucket . other-args)
-  (error "writeme"))
-
-(define (s3-object-copy! bucket . other-args)
-  (error "writeme"))
-
-(define (s3-object-copy/sxml! bucket . other-args)
-  (error "writeme"))
-
-(define (s3-object-delete! bucket . other-args)
-  (error "writeme"))
-
-(define (s3-object-delete/sxml! bucket . other-args)
-  (error "writeme"))
-
+(define (s3-object-delete! bucket id . other-args)
+  (s3-request-response 'DELETE bucket #`"/,|id|" '()))
 
 ;;-------------------------------------------------------------------
 ;; Common Request-response handling
@@ -179,9 +175,12 @@
     (case method
       [(HEAD) (values status hdrs #f)]
       [else
-       (let1 sxml (safe-parse-xml body status hdrs)
-         (unless (#/^20.$/ status) (server-error status hdrs sxml))
-         (values status hdrs sxml))])))
+       (if (#/^20.$/ status)
+           (if (equal? (assoc-ref hdrs "content-type") '("text/plain"))
+               body
+               (let1 sxml (safe-parse-xml body status hdrs)
+                 (values status hdrs sxml)))
+           (server-error status hdrs sxml))])))
 
 (define (prepare-http-headers method bucket uri headers body)
   (define (ensure-date hdrs)
