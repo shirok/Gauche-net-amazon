@@ -39,78 +39,76 @@
       (let1 line (read-line)
         (if (eof-object? line)
             (print "quit")
-            (begin (match (string-tokenize line)
-                     (("bucket" bucketname)
-                      (set! bucket bucketname)
-                      (print #`"set bucket: ,|bucket|"))
-                     (("bucket")
-                      (print #`"now bucket is set to ,|bucket|"))
-                     (("bucket" . args)
-                      (usage "bucket [bucketname]"))
+            (begin (guard (e (else (warning (ref e 'message)) (raise e)))
+                          (match (string-tokenize line)
+                            (("bucket" bucketname)
+                             (set! bucket bucketname)
+                             (print #`"set bucket: ,|bucket|"))
+                            (("bucket")
+                             (print #`"now bucket is set to ,|bucket|"))
+                            (("bucket" . args)
+                             (usage "bucket [bucketname]"))
 
-                     (("bucket-list")
-                      (print (s3-bucket-list)))
+                            (("bucket-list")
+                             (print (s3-bucket-list)))
 
-                     (("bucket-available?")
-                      (when (check-bucket)
-                        (print (s3-bucket-availability bucket))))
-
-                     (("bucket-location")
-                      (when (check-bucket)
-                        (print (s3-bucket-location bucket))))
-
-                     (("createbucket")
-                      (when (check-bucket)
-                        (s3-bucket-create! bucket)))
-
-                     (("deletebucket")
-                      (when (check-bucket)
-                        (s3-bucket-delete! bucket)))
-
-                     (("list")
-                      (when (check-bucket)
-                        (format #t "~s\n" (s3-object-list bucket))))
-
-                     (("list" prefix)
-                      (when (check-bucket)
-                        (format #t "~s\n"
-                                (s3-object-list bucket :prefix prefix))))
-
-                     (("list" prefix max)
-                      (when (check-bucket)
-                        (format #t "~s\n"
-                                (s3-object-list bucket :prefix prefix
-                                                :max-keys max))))
-
-                     (("put" id data . rem)
-                      (when (check-bucket)
-                        (s3-object-put! bucket id (tokens-drop line 2))
-                        (print #`"put ,|id|")))
-
-                     (("get" id)
-                      (guard (e (else #f))
+                            (("bucket-available?")
                              (when (check-bucket)
-                               (format #t "~s\n" (s3-object-get bucket id)))))
-                     
-                     (("head" id)
-                      (guard (e (else #f))
+                               (print (s3-bucket-availability bucket))))
+
+                            (("bucket-location")
                              (when (check-bucket)
-                               (format #t "~s\n" (s3-object-head bucket id)))))
+                               (print (s3-bucket-location bucket))))
 
-                     (("delete" id)
-                      (guard (e (else #?=e))
+                            (("createbucket")
                              (when (check-bucket)
-                               (format #t "~s\n" (s3-object-delete! bucket id)))))
+                               (s3-bucket-create! bucket)))
 
-                     (("copy" src dstid)
-                      (when (check-bucket)
-                        (format #t "~s\n" (s3-object-copy! bucket src dstid))))
+                            (("deletebucket")
+                             (when (check-bucket)
+                               (s3-bucket-delete! bucket)))
 
-                     (("quit") (exit 0))
+                            (("list")
+                             (when (check-bucket)
+                               (format #t "~s\n" (s3-object-list bucket))))
 
-                     ((cmd . args)
-                      (format (current-error-port)
-                              "ERROR: invalid command: ~a\n" cmd)))
+                            (("list" prefix)
+                             (when (check-bucket)
+                               (format #t "~s\n"
+                                       (s3-object-list bucket :prefix prefix))))
+
+                            (("list" prefix max)
+                             (when (check-bucket)
+                               (format #t "~s\n"
+                                       (s3-object-list bucket :prefix prefix
+                                                       :max-keys max))))
+
+                            (("put" id data . rem)
+                             (when (check-bucket)
+                               (s3-object-put! bucket id (tokens-drop line 2))
+                               (print #`"put ,|id|")))
+
+                            (("get" id)
+                             (when (check-bucket)
+                               (format #t "~s\n" (s3-object-get bucket id))))
+                            
+                            (("head" id)
+                             (when (check-bucket)
+                               (format #t "~s\n" (s3-object-head bucket id))))
+
+                            (("delete" id)
+                             (when (check-bucket)
+                               (format #t "~s\n" (s3-object-delete! bucket id))))
+
+                            (("copy" src dstid)
+                             (when (check-bucket)
+                               (format #t "~s\n" (s3-object-copy! bucket src dstid))))
+
+                            (("quit") (exit 0))
+
+                            ((cmd . args)
+                             (format (current-error-port)
+                                     "ERROR: invalid command: ~a\n" cmd))))
                    (loop)))))))
 
 (define (tokens-drop str num)

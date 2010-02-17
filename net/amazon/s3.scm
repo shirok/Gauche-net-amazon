@@ -22,17 +22,17 @@
   (use sxml.sxpath)
   (use sxml.tools)
   (extend net.amazon.base)
-  (export s3-bucket-list     s3-bucket-list/sxml
+  (export s3-bucket-list     s3-bucket-list/raw
           s3-bucket-availability
-          s3-bucket-create!  s3-bucket-create/sxml!
-          s3-bucket-delete!  s3-bucket-delete/sxml!
-          s3-bucket-location s3-bucket-location/sxml
-          s3-object-list     s3-object-list/sxml
-          s3-object-get
-          s3-object-head
-          s3-object-put!
-          s3-object-copy!    s3-object-copy/sxml!
-          s3-object-delete!
+          s3-bucket-create!  s3-bucket-create/raw!
+          s3-bucket-delete!  s3-bucket-delete/raw!
+          s3-bucket-location s3-bucket-location/raw
+          s3-object-list     s3-object-list/raw
+          s3-object-get      s3-object-get/raw
+          s3-object-head     s3-object-head/raw
+          s3-object-put!     s3-object-put/raw!
+          s3-object-copy!    s3-object-copy/raw!
+          s3-object-delete!  s3-object-delete/raw!
           s3-auth-header-value
           s3-signature s3-sign-string s3-string-to-sign))
 (select-module net.amazon.s3)
@@ -40,18 +40,18 @@
 (define *s3-endpoint* "s3.amazonaws.com")
 
 ;; In general, two procedures are provided for each S3 API.
-;; A procedure with /sxml suffix returns two values: the SXML of
+;; A procedure with /raw suffix returns two values: the SXML of
 ;; Amazon's response, and the list of headers (in the form that
 ;; rfc822-header-ref can be used).  You can get complete information
 ;; from those values.
-;; A procedure without /sxml suffix is a convenience procedure;
+;; A procedure without /raw suffix is a convenience procedure;
 ;; it extracts and returns the value that are handy for typical
 ;; applications.  For example, s3-bucket-list returns a list of
 ;; (<bucket-name> <creation-date>), where <cretion-date> is Gauche's
 ;; <date> object.
 ;; We hope the convenience interface is sufficient for most tasks,
 ;; though it does drop auxiliary information, and you may need to
-;; use /sxml interface time to time.
+;; use /raw interface time to time.
 
 ;;-------------------------------------------------------------------
 ;; Operations
@@ -62,14 +62,14 @@
 
 ;; Returns ((Name Date) ...)
 (define (s3-bucket-list)
-  (receive (sxml _) (s3-bucket-list/sxml)
+  (receive (sxml _) (s3-bucket-list/raw)
     (map (^s (list ((if-car-sxpath '(// aws:Name *text*)) (list s))
                    (iso-8601-date->date
                     ((if-car-sxpath '(// aws:CreationDate *text*)) (list s)))))
          ((sxpath '(// aws:Bucket)) sxml))))
 
 ;; Returns Sxml and Headers
-(define (s3-bucket-list/sxml)
+(define (s3-bucket-list/raw)
   (values-ref (s3-request-response 'GET #f "/" '()) 2 1))
 
 ;; Returns either 'used, 'available or 'taken.
@@ -84,40 +84,42 @@
                    "Access failed (~a)" status)])))
 
 (define (s3-bucket-create! bucket :key (location #f))
-  (s3-bucket-create/sxml! bucket :location location)
+  (s3-bucket-create/raw! bucket :location location)
   (values))
 
-(define (s3-bucket-create/sxml! bucket :key (location #f))
+(define (s3-bucket-create/raw! bucket :key (location #f))
   (define body (if location
                  `(CreateBucketConfiguration (LocationConstraint ,location))
                  ""))
   (values-ref (s3-request-response 'PUT bucket "/" '() body) 2 1))
 
 (define (s3-bucket-delete! bucket)
-  (s3-bucket-delete/sxml! bucket)
+  (s3-bucket-delete/raw! bucket)
   (values))
 
-(define (s3-bucket-delete/sxml! bucket)
+(define (s3-bucket-delete/raw! bucket)
   (values-ref (s3-request-response 'DELETE bucket "/" '()) 2 1))
 
+;; Returns either 'EU, 'us-west-1 or 'us-classic.
 (define (s3-bucket-location bucket)
-  ((if-car-sxpath '(// aws:LocationConstraint *text*))
-   (values-ref (s3-bucket-location/sxml bucket) 0)))
+  (string->symbol (or ((if-car-sxpath '(// aws:LocationConstraint *text*))
+                       (values-ref (s3-bucket-location/raw bucket) 0))
+                      "us-classic")))
 
-(define (s3-bucket-location/sxml bucket)
+(define (s3-bucket-location/raw bucket)
   (values-ref (s3-request-response 'GET bucket "/?location" '()) 2 1))
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (s3-object-list bucket :key (prefix #f) (marker #f)
                         (max-keys #f) (delimiter #f))
-  (receive (sxml _) (s3-object-list/sxml bucket
+  (receive (sxml _) (s3-object-list/raw bucket
                                          :prefix prefix :marker marker
                                          :max-keys max-keys
                                          :delimiter delimiter)
     ((sxpath '(// aws:Key *text*)) sxml)))
 
-(define (s3-object-list/sxml bucket :key (prefix #f) (marker #f)
+(define (s3-object-list/raw bucket :key (prefix #f) (marker #f)
                                                (max-keys #f) (delimiter #f))
   (let1 q (http-compose-query "/"
                               (cond-list [prefix @ `((prefix ,prefix))]
@@ -126,27 +128,123 @@
                                          [delimiter @ `((delimiter ,delimiter))]))
     (values-ref (s3-request-response 'GET bucket q '()) 2 1)))
 
-(define (s3-object-put! bucket id data . other-args)
-  (s3-request-response 'PUT bucket #`"/,|id|" '() data)
+(define (s3-object-put! bucket id data :key (cache-control #f)
+                        (content-disposition #f) (content-encoding #f)
+                        (content-length #f) (content-md5 #f)
+                        (content-type #f) (expect #f) (expires #f)
+                        (acl #f) (meta #f))
+  (s3-object-put/raw! bucket id data :cache-control cache-control
+                      :content-disposition content-disposition
+                      :content-encoding content-encoding
+                      :content-length content-length
+                      :content-md5 content-md5 :content-type content-type
+                      :expect expect :expires expires :acl acl :meta meta)
   (values))
 
-(define (s3-object-get bucket id . other-args)
-  (s3-request-response 'GET bucket #`"/,|id|" '()))
+(define (s3-object-put/raw! bucket id data :key (cache-control #f)
+                            (content-disposition #f) (content-encoding #f)
+                            (content-length #f) (content-md5 #f)
+                            (content-type #f) (expect #f) (expires #f)
+                            (acl #f) (meta #f))
+  (values-ref (s3-request-response 'PUT bucket #`"/,|id|"
+                                   (append
+                                    (cond-list [cache-control @ `((cache-control ,cache-control))]
+                                               [content-disposition @ `((content-disposition ,content-disposition))]
+                                               [content-encoding @ `((content-encoding ,content-encoding))]
+                                               [content-length @ `((content-length ,content-length))]
+                                               [content-md5 @ `((content-md5 ,content-md5))]
+                                               [content-type @ `((content-type ,content-type))]
+                                               [expect @ `((expect ,expect))]
+                                               [expires @ `((expires ,expires))]
+                                               [expires @ `((expires ,expires))]
+                                               [acl @ `((x-amz-acl ,acl))])
+                                    (if meta
+                                        (map (lambda (rec)
+                                               `((,(string->symbol #`"x-amz-meta-,(car rec)") ,(cadr rec))))
+                                             meta)
+                                        '()))
+                                   data)
+              2 1))
 
-(define (s3-object-head bucket id . other-args)
-  (values-ref (s3-request-response 'HEAD bucket #`"/,|id|" '()) 1))
+(define (s3-object-get bucket id :key (range #f) (if-modified-since #f)
+                       (if-unmodified-since #f) (if-match #f)
+                       (if-none-match #f))
+  (receive (text _) (s3-object-get/raw bucket id :range range
+                                       :if-modified-since if-modified-since
+                                       :if-unmodified-since if-unmodified-since
+                                       :if-match if-match
+                                       :if-none-match if-none-match)
+    text))
 
-(define (s3-object-copy! bucket src dstid . other-args)
-  (and ((if-car-sxpath '(// CopyObjectResult *text*))
-        (s3-object-copy/sxml! bucket src dstid))
-       #t))
+(define (s3-object-get/raw bucket id :key (range #f) (if-modified-since #f)
+                           (if-unmodified-since #f) (if-match #f)
+                           (if-none-match #f))
+  (values-ref (s3-request-response 'GET bucket #`"/,|id|"
+                                   (cond-list [range @ `((range ,range))]
+                                              [if-modified-since @ `((if-modified-since ,if-modified-since))]
+                                              [if-unmodified-since @ `((if-unmodified-since ,if-unmodified-since))]
+                                              [if-match @ `((if-match ,if-match))]
+                                              [if-none-match @ `((if-none-match ,if-none-match))]
+                                              ))
+              2 1))
 
-(define (s3-object-copy/sxml! bucket src dstid . other-args)
+(define (s3-object-head bucket id  :key (range #f) (if-modified-since #f)
+                        (if-unmodified-since #f) (if-match #f)
+                        (if-none-match #f))
+  (receive (_ hdrs) (s3-object-head/raw bucket id :range range
+                                        :if-modified-since if-modified-since
+                                        :if-unmodified-since if-unmodified-since
+                                        :if-match if-match
+                                        :if-none-match if-none-match)
+    hdrs))
+
+(define (s3-object-head/raw bucket id  :key (range #f) (if-modified-since #f)
+                            (if-unmodified-since #f) (if-match #f)
+                            (if-none-match #f))
+  (values-ref (s3-request-response 'HEAD bucket #`"/,|id|"
+                                   (cond-list [range @ `((range ,range))]
+                                              [if-modified-since @ `((if-modified-since ,if-modified-since))]
+                                              [if-unmodified-since @ `((if-unmodified-since ,if-unmodified-since))]
+                                              [if-match @ `((if-match ,if-match))]
+                                              [if-none-match @ `((if-none-match ,if-none-match))]
+                                              ))
+              2 1))
+
+(define (s3-object-copy! bucket src dstid :key (acl #f) (metadata-directive #f)
+                         (copy-source-if-match #f)
+                         (copy-source-if-none-match #f)
+                         (copy-source-if-unmodified-since #f)
+                         (copy-source-if-modified-since #f))
+  ((if-car-sxpath '(// CopyObjectResult ETag *text*))
+   (s3-object-copy/raw! bucket src dstid)))
+
+(define (s3-object-copy/raw! bucket src dstid :key (acl #f)
+                             (metadata-directive #f)
+                             (copy-source-if-match #f)
+                             (copy-source-if-none-match #f)
+                             (copy-source-if-unmodified-since #f)
+                             (copy-source-if-modified-since #f))
   (values-ref (s3-request-response 'PUT bucket #`"/,|dstid|"
-                                   `(("x-amz-copy-source" ,src)) "") 2 1))
+                                   (append `(("x-amz-copy-source" ,src))
+                                           (cond-list [acl @ `((x-amz-acl ,acl))]
+                                                      [metadata-directive @ `((x-amz-metadata-directive ,metadata-directive))]
+                                                      [copy-source-if-match @ `((x-amz-copy-source-if-match ,copy-source-if-match))]
+                                                      [copy-source-if-none-match @ `((x-amz-copy-source-if-none-match ,copy-source-if-none-match))]
+                                                      [copy-source-if-unmodified-since @ `((x-amz-copy-source-if-unmodified-since ,copy-source-if-unmodified-since))]
+                                                      [copy-source-if-modified-since @ `((x-amz-copy-source-if-modified-since ,copy-source-if-modified-since))]))
+                                   "")
+              2 1))
 
-(define (s3-object-delete! bucket id . other-args)
-  (s3-request-response 'DELETE bucket #`"/,|id|" '()))
+(define (s3-object-delete! bucket id :key (mfa #f))
+  (receive (sxml _) (s3-object-delete/raw! bucket id :mfa mfa)
+    sxml))
+
+(define (s3-object-delete/raw! bucket id :key (mfa #f))
+  (values-ref (s3-request-response 'DELETE bucket #`"/,|id|"
+                                   (cond-list [mfa @ `(x-amz-mfa ,mfa)]))
+              2 1))
+
+(debug-print-width 1024)
 
 ;;-------------------------------------------------------------------
 ;; Common Request-response handling
@@ -176,11 +274,13 @@
       [(HEAD) (values status hdrs #f)]
       [else
        (if (#/^20.$/ status)
-           (if (equal? (assoc-ref hdrs "content-type") '("text/plain"))
-               body
+           (if (member (assoc-ref hdrs "content-type")
+                       '(("text/plain") ("binary/octet-stream")))
+               (values status hdrs body)
                (let1 sxml (safe-parse-xml body status hdrs)
                  (values status hdrs sxml)))
-           (server-error status hdrs sxml))])))
+           (let1 sxml (safe-parse-xml body status hdrs)
+             (server-error status hdrs sxml)))])))
 
 (define (prepare-http-headers method bucket uri headers body)
   (define (ensure-date hdrs)
