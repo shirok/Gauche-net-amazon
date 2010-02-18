@@ -132,6 +132,8 @@
                              (hdrs   (rfc822-read-headers iport))
                              (cont   (port->string iport)))
                         (values cont hdrs)))))
+  (define (debug-print-sexps . lis)
+    (fold (lambda (l _) (and l #?=l)) #f lis))
   (define (compare-sxml-container left right)
     (define (sxml-container sxml)
       (if (pair? sxml)
@@ -143,20 +145,27 @@
                            (lambda (x y) (string<? (symbol->string (car x))
                                                    (symbol->string (car y)))))))
           '()))
-    (equal? (sxml-container left) (sxml-container right)))
+    (or (equal? (sxml-container left) (sxml-container right))
+        (debug-print-sexps (sxml-container left)
+                           (sxml-container right)
+                           #f)))
   (receive (cont hdrs) (parse-response expected)
-    (and (equal? (sort (filter #/^x-amz-/ (map car hdrs)) string<?)
-                 (sort (filter #/^x-amz-/ (map car (cadr raw))) string<?))
+    (and (or (equal? (sort (filter #/^x-amz-/ (map car hdrs)) string<?)
+                     (sort (filter #/^x-amz-/ (map car (cadr raw))) string<?))
+             (debug-print-sexps
+              (sort (filter #/^x-amz-/ (map car hdrs)) string<?)
+              (sort (filter #/^x-amz-/ (map car (cadr raw))) string<?)
+              #f))
          (if (equal? (rfc822-header-ref hdrs "content-type") "text/plain")
              (equal? (car raw) cont)
              (compare-sxml-container
-              (car raw)
               (if (or (equal? (rfc822-header-ref hdrs "content-length")
                                  "0")
                          (string=? cont ""))
                      '()
                      (call-with-input-string cont
-                       (cut ssax:xml->sxml <> ns))))))))
+                       (cut ssax:xml->sxml <> ns)))
+              (car raw))))))
 
 (define-macro (test-raw label expected proc)
   `(test ,label ,expected
@@ -188,7 +197,7 @@ Connection: close
 Server: AmazonS3
 
 <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/2006-03-01/\">
+<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">
   <Owner>
     <ID>bcaf1ffd86f461ca5fb16fd081034f</ID>
     <DisplayName>webfile</DisplayName>
@@ -221,8 +230,8 @@ Server: AmazonS3
         (test* #`"delete bucket ,|bucket|" #t
                (begin (s3-bucket-delete! bucket) #t))
 
-        (set! bucket #`",|bucket|2")
-        (test-raw #`"create-bucket/raw! ,|bucket|" "HTTP/1.1 200 OK
+        (let1 bucket #`",|bucket|2"
+          (test-raw #`"create-bucket/raw! ,|bucket|" "HTTP/1.1 200 OK
 x-amz-id-2: YgIPIfBiKa2bj0KMg95r/0zo3emzU4dzsD4rcKCHQUAdQkf3ShJTOOpXUueF6QKo
 x-amz-request-id: 236A8905248E5A01
 Date: Wed, 01 Mar  2009 12:00:00 GMT
@@ -243,9 +252,9 @@ Connection: close
 Server: AmazonS3
 
 <?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<CreateBucketConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"> 
-  <LocationConstraint>EU</LocationConstraint> 
-</CreateBucketConfiguration >"
+<LocationConstraint xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">
+EU
+</LocationConstraint>"
                   (s3-bucket-location/raw bucket))
         (test-raw #`"object-list/raw ,|bucket|" #`"HTTP/1.1 200 OK
 x-amz-id-2: gyB+3jRPnrkN98ZajxHXr3u7EFM67bNgSAxexeEHndCX/7GRnfTXxReKUQF28IfP
@@ -271,7 +280,6 @@ Server: AmazonS3
         (test-raw "object-put/raw!" "HTTP/1.1 200 OK
 x-amz-id-2: LriYPLdmOdAiIfgSm/F1YsViT1LW94/xUQxMsF7xiEb1a0wiIOIxl+zbwZ163pt7
 x-amz-request-id: 0A49CE4060975EAC
-x-amz-version-id: default
 Date: Wed, 12 Oct 2009 17:50:00 GMT
 ETag: \"1b2cf535f27731c974343645a3985328\"
 Content-Length: 0
@@ -320,15 +328,26 @@ Server: AmazonS3
       <DisplayName>webfile</DisplayName>
      </Owner>
   </Contents>
+  <Contents>
+    <Key>test-obj2.txt</Key>
+    <LastModified>2006-01-01T12:00:00.000Z</LastModified>
+    <ETag>&quot;828ef3fdfa96f00ad9f27c383fc9ac7f&quot;</ETag>
+    <Size>5</Size>
+    <StorageClass>STANDARD</StorageClass>
+    <Owner>
+      <ID>bcaf161ca5fb16fd081034f</ID>
+      <DisplayName>webfile</DisplayName>
+     </Owner>
+  </Contents>
 </ListBucketResult>"
                   (s3-object-list/raw bucket))
         (let1 copied-etag (s3-object-copy! bucket "test-obj.txt"
-                                           #`"/,|bucket|/test-obj2.txt")
-          (receive (sxml hdrs) (s3-object-get/sxml "test-obj2.txt")
+                                           #`"/,|bucket|/test-obj3.txt")
+          (receive (sxml hdrs) (s3-object-get/sxml "test-obj3.txt")
             (test* #`"object-head ,|bucket|" hdrs
-                   (s3-object-head bucket "test-obj2.txt"))
+                   (s3-object-head bucket "test-obj3.txt"))
             (test* #`"object-head/raw ,|bucket|" (cons '() hdrs)
-                   (receive (sxml hdrs) (s3-object-head bucket "test-obj2.txt")
+                   (receive (sxml hdrs) (s3-object-head bucket "test-obj3.txt")
                      (cons '() hdrs)))
             (test* "object-copy!" copied-etag
                    (cond [(assoc "ETag" hdrs) => cadr]
@@ -347,9 +366,9 @@ Server: AmazonS3
    <ETag>\"9b2cf535f27731c974343645a3985328\"</ETag>
  </CopyObjectResult>"
                   (object-copy/raw! bucket "test-obj.txt"
-                                    #`"/,|bucket|/test-obj3.txt"))
+                                    #`"/,|bucket|/test-obj4.txt"))
         (test* #`"object-list ,|bucket|" '("test-obj.txt" "test-obj2.txt"
-                                           "test-obj3.txt")
+                                           "test-obj3.txt" "test-obj4.txt")
                (s3-object-list bucket))
         (test* #`"object-delete! ,|bucket| test-obj.txt" #t
                (begin (s3-object-delete! bucket "test-obj.txt") #t))
@@ -364,17 +383,17 @@ Content-Length: 0
 Connection: close
 Server: AmazonS3"
                (s3-object-delete/raw! bucket "test-obj3.txt"))
+        (test* #`"object-delete! ,|bucket| test-obj4.txt" #t
+               (begin (s3-object-delete! bucket "test-obj4.txt") #t))
         (test* #`"object-list ,|bucket|" '()
                (s3-object-list bucket))
-;;         (test* #`"object-get ,|bucket| test-obj.txt" #f
-;;                (s3-object-get bucket "test-obj.txt"))
         (test-raw #`"delete-bucket/raw! ,|bucket|" "HTTP/1.1 204 No Content
 x-amz-id-2: JuKZqmXuiwFeDQxhD7M8KtsKobSzWA1QEjLbTMTagkKdBX2z7Il/jGhDeJ3j6s80
 x-amz-request-id: 32FE2CEB32F5EE25
 Date: Wed, 01 Mar  2009 12:00:00 GMT
 Connection: close
 Server: AmazonS3"
-                  (s3-bucket-delete/raw! bucket))
+                  (s3-bucket-delete/raw! bucket)))
         ))))
 
 ;; epilogue
