@@ -341,22 +341,28 @@ Server: AmazonS3
   </Contents>
 </ListBucketResult>"
                   (s3-object-list/raw bucket))
-        (let1 copied-etag (s3-object-copy! bucket "test-obj.txt"
-                                           #`"/,|bucket|/test-obj3.txt")
-          (receive (sxml hdrs) (s3-object-get/sxml "test-obj3.txt")
-            (test* #`"object-head ,|bucket|" hdrs
-                   (s3-object-head bucket "test-obj3.txt"))
-            (test* #`"object-head/raw ,|bucket|" (cons '() hdrs)
-                   (receive (sxml hdrs) (s3-object-head bucket "test-obj3.txt")
-                     (cons '() hdrs)))
+        (let1 copied-etag (s3-object-copy! bucket #`"/,|bucket|/test-obj.txt"
+                                           "test-obj3.txt")
+          (receive (sxml hdrs) (s3-object-get/raw bucket "test-obj3.txt")
+            (define (filter-token hdrs tokens)
+              (let loop ((hdrs hdrs) (out '()))
+                (if (null? hdrs)
+                    (reverse out)
+                    (if (member (caar hdrs) tokens)
+                        (loop (cdr hdrs) (cons (car hdrs) out))
+                        (loop (cdr hdrs) out)))))
+            (test* #`"object-head ,|bucket|" (filter-token hdrs '("etag" "last-modified"))
+                   (filter-token (s3-object-head bucket "test-obj3.txt")
+                                 '("etag" "last-modified")))
+            (test* #`"object-head/raw ,|bucket|" (cons #f (filter-token hdrs '("etag" "last-modified")))
+                   (receive (sxml hdrs) (s3-object-head/raw bucket "test-obj3.txt")
+                     (cons sxml (filter-token hdrs '("etag" "last-modified")))))
             (test* "object-copy!" copied-etag
                    (cond [(assoc "ETag" hdrs) => cadr]
                          [else #f]))))
         (test-raw "object-copy/raw!" "HTTP/1.1 200 OK
 x-amz-id-2: eftixk72aD6Ap51TnqcoF8eFidJG9Z/2mkiDFu8yU9AS1ed4OpIszj7UDNEHGran
 x-amz-request-id: 318BC8BC148832E5
-x-amz-copy-source-version-id: 3/L4kqtJlcpXroDTDmJ+rmSpXd3dIbrHY+MTRCxf3vjVBH40Nr8X8gdRQBpUMLUo
-x-amz-version-id: QUpfdndhfd8438MNFDN93jdnJFkdmqnh893
 Date: Wed, 28 Oct 2009 22:32:00 GMT
 Connection: close
 Server: AmazonS3
@@ -365,8 +371,8 @@ Server: AmazonS3
    <LastModified>2009-10-28T22:32:00</LastModified>
    <ETag>\"9b2cf535f27731c974343645a3985328\"</ETag>
  </CopyObjectResult>"
-                  (object-copy/raw! bucket "test-obj.txt"
-                                    #`"/,|bucket|/test-obj4.txt"))
+                  (s3-object-copy/raw! bucket #`"/,|bucket|/test-obj.txt"
+                                       "test-obj4.txt"))
         (test* #`"object-list ,|bucket|" '("test-obj.txt" "test-obj2.txt"
                                            "test-obj3.txt" "test-obj4.txt")
                (s3-object-list bucket))
