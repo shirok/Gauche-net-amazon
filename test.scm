@@ -367,7 +367,8 @@ Date: Wed, 28 Oct 2009 22:32:00 GMT
 Connection: close
 Server: AmazonS3
 
-<CopyObjectResult>
+<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<CopyObjectResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">
    <LastModified>2009-10-28T22:32:00</LastModified>
    <ETag>\"9b2cf535f27731c974343645a3985328\"</ETag>
  </CopyObjectResult>"
@@ -380,7 +381,7 @@ Server: AmazonS3
                (begin (s3-object-delete! bucket "test-obj.txt") #t))
         (test* #`"object-delete! ,|bucket| test-obj2.txt" #t
                (begin (s3-object-delete! bucket "test-obj2.txt") #t))
-        (test* #`"object-delete/raw! ,|bucket| test-obj3.txt"
+        (test-raw #`"object-delete/raw! ,|bucket| test-obj3.txt"
                "HTTP/1.1 204 NoContent
 x-amz-id-2: LriYPLdmOdAiIfgSm/F1YsViT1LW94/xUQxMsF7xiEb1a0wiIOIxl+zbwZ163pt7
 x-amz-request-id: 0A49CE4060975EAC
