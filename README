@@ -3,3 +3,79 @@ Amazon Web Services.  Currently only a part of S3 interface is implemented.
 
 To access to S3 API that requires authentication, the client program has
 to set two parameters, aws-access-key-id and aws-secret-access-key.
+
+APIs
+----
+
+* s3-bucket-availability bucket
+  BUCKET is a string of bucket name. This function returns 'used, 'available or 'taken. If something wrong like authentication failure, s3-bucket-availability raises error.
+
+* s3-bucket-list
+  Return bucket list which you have their ownership. If you don't have any bucket, this function returns '().
+
+* s3-bucket-list/raw
+  Low level API of s3-bucket-list. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-bucket-create! bucket &keyword location
+  creates a bucket. BUCKET is a string for the bucket name. LOCATION is 'EU or 'us-west-1. If LOCATION keyword is omitted, Amazon S3 server use the "US Standard" location. This function returns no value. This function don't care whether the indicated bucket already exists or not (if does not exist, simply create it).
+
+* s3-bucket-create/raw!
+  Low level API of s3-bucket-create!. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-bucket-delete! bucket
+  delete a bucket. BUCKET is a string of the bucket name. This function don't care whether the indicated bucket already exists or not (if exists, simply delete it).
+
+* s3-bucket-delete/raw! bucket
+  Low level API of s3-bucket-delete!. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-bucket-location bucket
+  returns the location of bucket. The return value is 'EU, 'us-west-1 or 'us-classic.
+
+* s3-bucket-location/raw bucket
+  Low level API of s3-bucket-location. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-object-list bucket &keyword prefix marker max-keys
+  Return the list of object name which the indicated bucket contains. BUCKET is a string of the bucket's name. PREFIX is used to limit the response to object names that begin with the specified prefix. MARKER is used to specify the object to start with when listing objects in a bucket. MAX-KEYS is used to set the maximum number of object names returned in the response body. The default value of MAX-KEYS is 1000. All keywords have the type of string.
+
+* s3-object-list/raw bucket &keyword prefix marker max-keys delimiter
+  Low level API of s3-object-list. This function returns the sxml and HTTP header that Amazon S3 responded to client's request list request. If the number of objects that exists on server is bigger than the MAX-KEYS parameter, the response sxml contains '(isTruncated true). DELIMITER is a delimiter character that let you be able to group objects. All objects that contain the same string between the prefix and the first occurrence of the delimiter are grouped under a single result element, CommonPrefixes. These objects are not returned elsewhere in the response. All keywords have the type of string.
+
+* s3-object-put! bucket object-name data &keyword cache-control content-disposition content-encoding content-length content-md5 content-type expires acl meta
+  put a object to a bucket. OBJECT-NAME and BUCKET indicates where the object to be put. The type of data must be a string or sxml. If you want to put binary data or so, you should manually encode the data and you should set the CONTENT-TYPE keyword correctly by yourself. The keywords of CACHE-CONTROL, CONTENT-DISPOSITION, CONTENT-ENCODING, CONTENT-LENGTH and CONTENT-TYPE are used under RFC2616 definition. CONTENT-MD5 is used for a message integrity check to verify that the data is the same data that was originally sent. The detail is defined in RFC1864.
+
+  EXPIRES keyword is the Number of milliseconds before expiration of the data on the server. ACL keyword is used to set the object's acl. The acl value should be one of followings: 'private, 'public-read, 'public-read-write , 'bucket-owner-read , 'authenticated-read or 'bucket-owner-full-control, and the default is 'private. The META keyword is used to indicate user meta data that would be stored with the object and returned when you retrieve the object. If you indicate meta as '(("LEBEL" 2)), s3-object-put! add "x-amz-meta-LEVEL: 2" to the header and send it to the server.
+
+  s3-object-put! returns ETag (entity tag) value that is set by Amazon S3 server.
+
+* s3-object-put/raw! bucket object-name data &keyword cache-control content-disposition content-encoding content-length content-md5 content-type expires acl meta
+  Low level API of s3-object-put!. This function returns the sxml and HTTP header that Amazon S3 responded to the client's request.
+
+* s3-object-get bucket object-name &keyword range if-modified-since if-unmodified-since if-match if-none-match
+  return the content of the object. the RANGE keyword is used for Downloads the specified range of an object. IF-MODIFIED-SINCE and IF-UNMODIFIED-SINCE keyword is used if the object's timestamp is bigger or lower, the server does not return the content for response data retrenchment. You should indicate IF-MODIFIED-SINCE or IF-UNMODIFIED-SINCE should be a string like "Sat, 29 Oct 1994 19:43:31 GMT".
+
+  IF-MATCH and IF-NONE-MATCH keywords are similar to if-modified-since and if-unmodified-since keywords, but they accept object's ETag(entity tag). If the object's ETag on the server matches (or does not match) to the indicated one, the server does not return (or returns) the content.
+
+* s3-object-get/raw bucket object-name &keyword range if-modified-since if-unmodified-since if-match if-none-match
+    Low level API of s3-object-get. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-object-head bucket object-name &keyword range if-modified-since if-unmodified-since if-match if-none-match
+  almost same to s3-object-get but this function return header information (meta information) instead of the object content.
+
+* s3-object-head/raw bucket object-name &keyword range if-modified-since if-unmodified-since if-match if-none-match
+  Low level API of s3-object-head. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-object-copy! bucket src-bucket-name+object-name dst-object-name :keyword acl metadata-directive copy-source-if-match copy-source-if-none-match copy-source-if-unmodified-since copy-source-if-modified-since
+  copy object. src-bucket-name+object-name is a string like "/srcbucket/hello.txt" (source-bucket-name + "/" + object-name) and dst-object-name is a string like  "hello.txt".
+
+  keywords of ACL, COPY-SOURCE-IF-MATCH, COPY-SOURCE-IF-NONE-MATCH, COPY-SOURCE-IF-UNMODIFIED-SINCE or COPY-SOURCE-IF-MODIFIED-SINCE are same as s3-object-put!. METADATA-DIRECTIVE is to specify whether the metadata is copied from the source object or replaced with metadata provided in the request. If copied, the metadata, except for the version ID, remains unchanged. Otherwise, all original metadata is replaced by the metadata you specify. valid values for METADATA-DIRECTIVE is 'COPY or 'REPLACE. 
+
+  s3-object-copy! returns ETag of the copied object.
+
+* s3-object-copy/raw! bucket src-bucket-name+object-name dst-object-name :keyword acl metadata-directive copy-source-if-match copy-source-if-none-match copy-source-if-unmodified-since copy-source-if-modified-since
+  Low level API of s3-object-copy!. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
+
+* s3-object-delete! bucket object-name &keyword mfa
+  delete a object. MFA keyword is required to permanently delete a versioned object if versioning is configured with MFA Delete enabled. MFA is the concatenation of the authentication device's serial number, a space, and the value displayed on your authentication device.
+
+* s3-object-delete/raw! bucket object-name &keyword mfa
+  Low level API of s3-object-delete!. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.

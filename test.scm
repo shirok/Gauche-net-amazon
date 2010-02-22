@@ -274,9 +274,11 @@ Server: AmazonS3
   <IsTruncated>false</IsTruncated>
 </ListBucketResult>"
                   (s3-object-list/raw bucket))
-        (test* #`"object-put! ,|bucket| test-obj.txt" #t
-               (begin (s3-object-put! bucket "test-obj.txt" "this is a test.")
-                      #t))
+        (test* #`"object-put! ,|bucket| test-obj.txt"
+               (s3-object-put! bucket "test-obj.txt" "this is a test.")
+               (rfc822-header-ref (s3-object-head bucket "test-obj.txt")
+                                     "etag"))
+        
         (test-raw "object-put/raw!" "HTTP/1.1 200 OK
 x-amz-id-2: LriYPLdmOdAiIfgSm/F1YsViT1LW94/xUQxMsF7xiEb1a0wiIOIxl+zbwZ163pt7
 x-amz-request-id: 0A49CE4060975EAC

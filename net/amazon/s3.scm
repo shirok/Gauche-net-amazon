@@ -111,12 +111,10 @@
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (s3-object-list bucket :key (prefix #f) (marker #f)
-                        (max-keys #f) (delimiter #f))
+(define (s3-object-list bucket :key (prefix #f) (marker #f) (max-keys #f))
   (receive (sxml _) (s3-object-list/raw bucket
                                          :prefix prefix :marker marker
-                                         :max-keys max-keys
-                                         :delimiter delimiter)
+                                         :max-keys max-keys)
     ((sxpath '(// aws:Key *text*)) sxml)))
 
 (define (s3-object-list/raw bucket :key (prefix #f) (marker #f)
@@ -131,20 +129,21 @@
 (define (s3-object-put! bucket id data :key (cache-control #f)
                         (content-disposition #f) (content-encoding #f)
                         (content-length #f) (content-md5 #f)
-                        (content-type #f) (expect #f) (expires #f)
+                        (content-type #f) (expires #f)
                         (acl #f) (meta #f))
-  (s3-object-put/raw! bucket id data :cache-control cache-control
-                      :content-disposition content-disposition
-                      :content-encoding content-encoding
-                      :content-length content-length
-                      :content-md5 content-md5 :content-type content-type
-                      :expect expect :expires expires :acl acl :meta meta)
-  (values))
+  (receive (sxml hdrs)
+      (s3-object-put/raw! bucket id data :cache-control cache-control
+                          :content-disposition content-disposition
+                          :content-encoding content-encoding
+                          :content-length content-length
+                          :content-md5 content-md5 :content-type content-type
+                          :expires expires :acl acl :meta meta)
+    (rfc822-header-ref hdrs "etag")))
 
 (define (s3-object-put/raw! bucket id data :key (cache-control #f)
                             (content-disposition #f) (content-encoding #f)
                             (content-length #f) (content-md5 #f)
-                            (content-type #f) (expect #f) (expires #f)
+                            (content-type #f) (expires #f)
                             (acl #f) (meta #f))
   (values-ref (s3-request-response 'PUT bucket #`"/,|id|"
                                    (append
@@ -154,7 +153,6 @@
                                                [content-length @ `((content-length ,content-length))]
                                                [content-md5 @ `((content-md5 ,content-md5))]
                                                [content-type @ `((content-type ,content-type))]
-                                               [expect @ `((expect ,expect))]
                                                [expires @ `((expires ,expires))]
                                                [expires @ `((expires ,expires))]
                                                [acl @ `((x-amz-acl ,acl))])
