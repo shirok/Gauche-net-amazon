@@ -242,8 +242,6 @@
                                    (cond-list [mfa @ `(x-amz-mfa ,mfa)]))
               2 1))
 
-(debug-print-width 1024)
-
 ;;-------------------------------------------------------------------
 ;; Common Request-response handling
 ;;

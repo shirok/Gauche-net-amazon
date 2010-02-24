@@ -8,6 +8,7 @@
 (use rfc.822) ;; rfc822-read-headers
 (use sxml.ssax) ;; ssax:xml->sxml
 (use srfi-1) ;; remove
+(use dummy-server) ;; run-dummy-server
 
 (test-start "net.amazon.s3")
 (use net.amazon.s3)
@@ -171,6 +172,10 @@
   `(test ,label ,expected
          (lambda () (receive (sxml hdrs) ,proc (list sxml hdrs)))
          compare-response-raw))
+
+(let1 port 8080
+  (with-module net.amazon.s3 (set! *s3-endpoint* #`"localhost:,|port|"))
+  (run-dummy-server port))
 
 (let1 bucket "yfujisawa2" ;; #`",(sys-time)"
   (define (keys-file-load iport)
