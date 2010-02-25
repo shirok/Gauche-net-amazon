@@ -31,6 +31,7 @@
     (display #`"USAGE: ,|str|\n" (current-error-port)))
   (define (warning str)
     (display #`"ERROR: ,|str|\n" (current-error-port)))
+  (with-module net.amazon.s3 (set! *s3-endpoint* "localhost:8080"))
   (let ((bucket #f))
     (define (check-bucket)
       (or bucket (begin (warning "bucket is not set.") #f)))
