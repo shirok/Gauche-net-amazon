@@ -5,6 +5,8 @@
 (use srfi-13)
 (use util.match)
 
+(define use-proxy? #f)
+
 (define (main args)
   (if (file-exists? "keys.txt")
       (receive (keyid skey) (call-with-input-file "keys.txt" keys-file-load)
@@ -31,7 +33,27 @@
     (display #`"USAGE: ,|str|\n" (current-error-port)))
   (define (warning str)
     (display #`"ERROR: ,|str|\n" (current-error-port)))
-  (with-module net.amazon.s3 (set! *s3-endpoint* "localhost:8080"))
+  (when use-proxy?
+    (with-module net.amazon.s3
+      (let1 *s3-endpoint* "s3.amazonaws.com"
+        (set! prepare-http-headers
+              (lambda (method bucket uri headers body)
+                (define (ensure-date hdrs)
+                  (cond [(rfc822-header-ref headers "date") hdrs]
+                        [else `(("date" ,(date->rfc822-date (current-date))) ,@hdrs)]))
+                (define (ensure-host hdrs)
+                  (cond [(rfc822-header-ref headers "host") hdrs]
+                        [bucket `(("host" ,#`",|bucket|.,*s3-endpoint*") ,@hdrs)]
+                        [else   `(("host" ,*s3-endpoint*) ,@hdrs)]))
+                (define (ensure-content-length hdrs)
+                  (cond [(not body) hdrs]
+                        [else `(("content-length" ,(x->string (string-size body))) ,@hdrs)]))
+
+                (let1 h ($ ensure-content-length $ ensure-host $ ensure-date headers)
+                  `(,@(append-map (^p `(,(make-keyword (car p)) ,(cadr p))) h)
+                    :authorization ,(s3-auth-header-value
+                                     (s3-signature (x->string method) h bucket uri)))))))
+      (set! *s3-endpoint* "localhost:8080")))
   (let ((bucket #f))
     (define (check-bucket)
       (or bucket (begin (warning "bucket is not set.") #f)))
