@@ -69,7 +69,7 @@ APIs
 
   keywords of ACL, COPY-SOURCE-IF-MATCH, COPY-SOURCE-IF-NONE-MATCH, COPY-SOURCE-IF-UNMODIFIED-SINCE or COPY-SOURCE-IF-MODIFIED-SINCE are same as s3-object-put!. METADATA-DIRECTIVE is to specify whether the metadata is copied from the source object or replaced with metadata provided in the request. If copied, the metadata, except for the version ID, remains unchanged. Otherwise, all original metadata is replaced by the metadata you specify. valid values for METADATA-DIRECTIVE is 'COPY or 'REPLACE. 
 
-  s3-object-copy! returns ETag of the copied object.
+  If copy succeeded, s3-object-copy! returns string that represent ETag of the copied object and if failed, it returns #f.
 
 * s3-object-copy/raw! bucket src-bucket-name+object-name dst-object-name :keyword acl metadata-directive copy-source-if-match copy-source-if-none-match copy-source-if-unmodified-since copy-source-if-modified-since
   Low level API of s3-object-copy!. This function returns the sxml and HTTP header that Amazon S3 responded to client's request.
