@@ -10,7 +10,13 @@
 (use srfi-1) ;; remove
 (use dummy-server) ;; run-dummy-server
 
-(test-start "net.amazon.s3")
+(test-start "net.amazon.aws")
+
+(test-section "net.amazon.base")
+(use net.amazon.base)
+(test-module 'net.amazon.base)
+
+(test-section "net.amazon.s3")
 (use net.amazon.s3)
 (test-module 'net.amazon.s3)
 
