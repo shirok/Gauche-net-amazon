@@ -4,6 +4,7 @@
 (use gauche.parameter)
 (use srfi-13)
 (use util.match)
+(use file.util)
 
 (define use-proxy? #f)
 
@@ -21,32 +22,139 @@
   (print "Usage: ,*program-name* [-c=config]")
   (exit 0))
 
+(define *commands* '())
+
+(define *current-bucket* #f)
+
+(define-macro (define-command entry help . body)
+  (match-let1 (name . formals) entry
+    (let1 e (gensym)
+      `(push! *commands*
+              `(,',name
+                ,(lambda ,formals
+                   (define (command-usage) (print "Usage: " ,help))
+                   (guard (,e [(<parseopt-error> ,e)
+                               (print (~ ,e'message))
+                               (command-usage)]
+                              [else
+                               (print "ERROR: " (~ ,e'message))])
+                     ,@body))
+                ,',help)))))
+
+(define (dispatch line)
+  (match (parse-cmdline line)
+    [(name . args)
+     (cond [(assq name *commands*) => (^p (apply (cadr p) args))]
+           [else (print #`"unknown command: ,|name|.  Try 'help'.")])]
+    [_ #f]))
+
+(define (prompt)
+  (if *current-bucket*
+    (format #t "s3sh[~a]> " *current-bucket*)
+    (format #t "s3sh> "))
+  (flush))
+
 (define (run-cli)
+  (when use-proxy? (setup-proxy))
+  (let loop ()
+    (prompt)
+    (let1 line (read-line)
+      (unless (eof-object? line)
+        (dispatch line)
+        (loop)))))
+
+(define (parse-cmdline line)
+  ;; TODO: ultimately we want to parse like shell.  For now, the following
+  ;; at least enables to handle double-quoted words:
+  (guard (e [(<read-error> e)
+             (print "command syntax error (~a)" (e'message))
+             #f])
+    (match (read-from-string #`"(,line)")
+      [(word . rest) (cons word (map x->string rest))]
+      [word word])))
+
+;;;
+;;; Commands
+;;;
+
+;;
+;; Miscellaneous
+;;
+
+(define-command (help . args)
+  "help [command]\n\
+   Without command, lists the available commands and prints generic helps.\n\
+   With command, show the detailed help of the command."
+  (match args
+    [() (help-generic)]
+    [(cmd) (cond [(assq (string->symbol cmd) *commands*)
+                  => (^p (print (caddr p)))]
+                 [else (print #`"unknown command: ,|cmd|")])]
+    [_ (command-usage)]))
+
+(define (help-generic)
+  (print
+   "Pathname syntax:\n\
+    - BUCKET//NAME specifies a remote object NAME in BUCKET.   If BUCKET is\n\
+      omitted (i.e. the path begins with '//'), a current bucket is assumed.\n\
+    - All other names are taken as local pathname, if it appears in a place\n\
+      where object name is assumed.\n\
+    Available commands (type help COMMAND for the details:")
+  (dolist [entry (sort-by *commands* (.$ x->string car))]
+    (format #t "  ~a\n" (with-input-from-string (caddr entry) read-line)))
+  (print "Unrecognized commands are passed to shell."))
+
+(define-command (pwd)
+  "pwd\n\
+   Print current (local) working directory."
+  (print (sys-getcwd)))
+
+(define-command (cd . args)
+  "cd [directory]\n\
+   Change (local) working directory.  If directotry is omitted, go to\n\
+   home directory."
+  (sys-chdir (get-optional args (home-directory)))
+  (print (sys-getcwd)))
+
+;;
+;; Bucket
+;;
+
+(define-command (bucket . args)
+  "bucket [-l] [[-acd] bucket-name]\n\
+   Without arguments, list your buckets.  With bucket-name and no options,\n\
+   set the current bucket to the given bucket-name.\n\
+   Options:\n\
+   -a bucket-name    See if the named bucket is available.\n\
+   -c bucket-name    Create the named bucket.\n\
+   -d bucket-name    Delete the named bucket.\n\
+   -l [bucket-name]  Show auxiliary info of the named or current bucket."
+  (let-args args ([avail "a=s"]
+                  [create "c=s"]
+                  [delete "d=s"]
+                  [long   "l"]
+                  [else _ (command-usage)]
+                  . args)
+    (cond
+     [avail     (print "bucket "avail" is "(s3-bucket-availability avail))]
+     [create    (s3-bucket-create! create)]
+     [delete    (s3-bucket-delete! delete)]
+     [(null? args) (if long
+                     (if *current-bucket*
+                       (print "WRITEME long option")
+                       (no-bucket))
+                     (map (.$ print car) (s3-bucket-list)))]
+     [(not (null? (cdr args))) (command-usage)]
+     [long      (print "WRITEME long option")]
+     [else      (set! *current-bucket* (car args))])))
+
+
+'(define (run-cli)
   (define (usage str)
     (display #`"USAGE: ,|str|\n" (current-error-port)))
   (define (warning str)
     (display #`"ERROR: ,|str|\n" (current-error-port)))
-  (when use-proxy?
-    (with-module net.amazon.s3
-      (let1 *s3-endpoint* "s3.amazonaws.com"
-        (set! prepare-http-headers
-              (lambda (method bucket uri headers body)
-                (define (ensure-date hdrs)
-                  (cond [(rfc822-header-ref headers "date") hdrs]
-                        [else `(("date" ,(date->rfc822-date (current-date))) ,@hdrs)]))
-                (define (ensure-host hdrs)
-                  (cond [(rfc822-header-ref headers "host") hdrs]
-                        [bucket `(("host" ,#`",|bucket|.,*s3-endpoint*") ,@hdrs)]
-                        [else   `(("host" ,*s3-endpoint*) ,@hdrs)]))
-                (define (ensure-content-length hdrs)
-                  (cond [(not body) hdrs]
-                        [else `(("content-length" ,(x->string (string-size body))) ,@hdrs)]))
-
-                (let1 h ($ ensure-content-length $ ensure-host $ ensure-date headers)
-                  `(,@(append-map (^p `(,(make-keyword (car p)) ,(cadr p))) h)
-                    :authorization ,(s3-auth-header-value
-                                     (s3-signature (x->string method) h bucket uri)))))))
-      (set! *s3-endpoint* "localhost:8080")))
+  (when use-proxy? (setup-proxy))
   (let ((bucket #f))
     (define (check-bucket)
       (or bucket (begin (warning "bucket is not set.") #f)))
@@ -134,6 +242,33 @@
         (if m
             (tokens-drop (rxmatch-after m) (- num 1))
             ""))))
+
+;; KLUDGE!  properly support this.
+(define (setup-proxy)
+  (with-module net.amazon.s3
+    (let1 *s3-endpoint* "s3.amazonaws.com"
+      (set! prepare-http-headers
+            (lambda (method bucket uri headers body)
+              (define (ensure-date hdrs)
+                (cond [(rfc822-header-ref headers "date") hdrs]
+                      [else `(("date" ,(date->rfc822-date (current-date)))
+                              ,@hdrs)]))
+              (define (ensure-host hdrs)
+                (cond [(rfc822-header-ref headers "host") hdrs]
+                      [bucket `(("host" ,#`",|bucket|.,*s3-endpoint*") ,@hdrs)]
+                      [else   `(("host" ,*s3-endpoint*) ,@hdrs)]))
+              (define (ensure-content-length hdrs)
+                (cond [(not body) hdrs]
+                      [else `(("content-length" ,(x->string (string-size body)))
+                              ,@hdrs)]))
+
+              (let1 h ($ ensure-content-length $ ensure-host
+                         $ ensure-date headers)
+                `(,@(append-map (^p `(,(make-keyword (car p)) ,(cadr p))) h)
+                  :authorization ,(s3-auth-header-value
+                                   (s3-signature (x->string method)
+                                                 h bucket uri)))))))
+    (set! *s3-endpoint* "localhost:8080")))
 
 ;; Local variables:
 ;; mode: scheme
