@@ -134,3 +134,7 @@
         (if m
             (tokens-drop (rxmatch-after m) (- num 1))
             ""))))
+
+;; Local variables:
+;; mode: scheme
+;; end:
