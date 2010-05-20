@@ -3,8 +3,10 @@
 (use gauche.parseopt)
 (use gauche.parameter)
 (use srfi-13)
+(use srfi-19)
 (use util.match)
 (use file.util)
+(use sxml.sxpath)
 
 (define use-proxy? #f)
 
@@ -28,17 +30,22 @@
 
 (define-macro (define-command entry help . body)
   (match-let1 (name . formals) entry
-    (let1 e (gensym)
+    (let ([e (gensym)]
+          [return (gensym)])
       `(push! *commands*
               `(,',name
                 ,(lambda ,formals
-                   (define (command-usage) (print "Usage: " ,help))
-                   (guard (,e [(<parseopt-error> ,e)
-                               (print (~ ,e'message))
-                               (command-usage)]
-                              [else
-                               (print "ERROR: " (~ ,e'message))])
-                     ,@body))
+                   (let/cc ,return
+                     (define (command-usage)
+                       (print "Usage: " ,help)
+                       (,return #f))
+                     (guard (,e [(<parseopt-error> ,e)
+                                 (print (~ ,e'message))
+                                 (command-usage)]
+                                [else
+                                 (print "ERROR: " (~ ,e'message))
+                                 (,return #f)])
+                       ,@body)))
                 ,',help)))))
 
 (define (dispatch line)
@@ -72,6 +79,12 @@
     (match (read-from-string #`"(,line)")
       [(word . rest) (cons word (map x->string rest))]
       [word word])))
+
+(define (ls-date date)
+  (if (time>=? (time-difference (current-time) (date->time-utc date))
+               (make-time time-duration 0 (* 86400 (/ 365 2))))
+    (date->string date "~b ~e  ~Y")
+    (date->string date "~b ~e ~H:~M")))
 
 ;;;
 ;;; Commands
@@ -133,20 +146,46 @@
                   [create "c=s"]
                   [delete "d=s"]
                   [long   "l"]
-                  [else _ (command-usage)]
+                  [else _ (command-usage) '()]
                   . args)
     (cond
      [avail     (print "bucket "avail" is "(s3-bucket-availability avail))]
-     [create    (s3-bucket-create! create)]
-     [delete    (s3-bucket-delete! delete)]
+     [create    (s3-bucket-create! create) (print "bucket "create" created.")]
+     [delete    (s3-bucket-delete! delete) (print "bucket "delete" deleted.")]
      [(null? args) (if long
                      (if *current-bucket*
-                       (print "WRITEME long option")
+                       (bucket-long *current-bucket*)
                        (no-bucket))
-                     (map (.$ print car) (s3-bucket-list)))]
+                     (map (lambda (e)
+                            (match-let1 (name created) e
+                              (format #t "~12a ~a\n" (ls-date created) name)))
+                          (s3-bucket-list)))]
      [(not (null? (cdr args))) (command-usage)]
-     [long      (print "WRITEME long option")]
+     [long      (bucket-long (car args))]
      [else      (set! *current-bucket* (car args))])))
+
+(define (bucket-long name)
+  (let ([location (s3-bucket-location name)]
+        [acl (values-ref (s3-bucket-acl/raw name) 0)])
+    (print "Bucket '"name"'")
+    (print "    owner: "
+           ((if-car-sxpath '(// aws:Owner aws:DisplayName *text*)) acl))
+    (print " location: "location)
+    (print " access granted to:")
+    (dolist [grant ((sxpath '(// aws:Grant)) acl)]
+      (let ([grantee ((if-car-sxpath '(// aws:DisplayName *text*)) grant)]
+            [perm    ((if-car-sxpath '(// aws:Permission *text*)) grant)])
+        (format #t "     ~15a  ~a\n" perm grantee)))))
+
+(define (no-bucket :optional (msg ""))
+  (print "No bucket specified" msg "."))
+
+;;
+;; Lister
+;;
+
+;(define-command (ls . args)
+;  "ls "
 
 
 '(define (run-cli)
