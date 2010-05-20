@@ -75,12 +75,12 @@
 
 ;; Returns Sxml and Headers
 (define (s3-bucket-list/raw)
-  (values-ref (s3-request-response 'GET #f "/" '()) 2 1))
+  (values-ref (s3-request-response 'GET #f "/" #t) 2 1))
 
 ;; Returns either 'used, 'available or 'taken.
 (define (s3-bucket-availability bucket)
   (receive (status hdrs response)
-      (s3-request-response 'HEAD bucket "/" '(("max-keys" 0)))
+      (s3-request-response 'HEAD bucket "/" #t '(("max-keys" 0)))
     (cond
      [(equal? status "200") 'used]
      [(equal? status "404") 'available]
@@ -96,14 +96,14 @@
   (define body (if location
                  `(CreateBucketConfiguration (LocationConstraint ,location))
                  ""))
-  (values-ref (s3-request-response 'PUT bucket "/" '() body) 2 1))
+  (values-ref (s3-request-response 'PUT bucket "/" #t '() body) 2 1))
 
 (define (s3-bucket-delete! bucket)
   (s3-bucket-delete/raw! bucket)
   (values))
 
 (define (s3-bucket-delete/raw! bucket)
-  (values-ref (s3-request-response 'DELETE bucket "/" '()) 2 1))
+  (values-ref (s3-request-response 'DELETE bucket "/" #t) 2 1))
 
 ;; Returns either 'EU, 'us-west-1 or 'us-classic.
 (define (s3-bucket-location bucket)
@@ -112,10 +112,10 @@
                       "us-classic")))
 
 (define (s3-bucket-location/raw bucket)
-  (values-ref (s3-request-response 'GET bucket "/?location" '()) 2 1))
+  (values-ref (s3-request-response 'GET bucket "/?location" #t) 2 1))
 
 (define (s3-bucket-acl/raw bucket)
-  (values-ref (s3-request-response 'GET bucket "/?acl" '()) 2 1))
+  (values-ref (s3-request-response 'GET bucket "/?acl" #t) 2 1))
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -154,7 +154,7 @@
                                          [marker @ `((marker ,marker))]
                                          [max-keys @ `((max-keys ,max-keys))]
                                          [delimiter @ `((delimiter ,delimiter))]))
-    (values-ref (s3-request-response 'GET bucket q '()) 2 1)))
+    (values-ref (s3-request-response 'GET bucket q #t) 2 1)))
 
 (define (s3-object-put! bucket id data :key (cache-control #f)
                         (content-disposition #f) (content-encoding #f)
@@ -175,7 +175,7 @@
                             (content-length #f) (content-md5 #f)
                             (content-type #f) (expires #f)
                             (acl #f) (meta #f))
-  (values-ref (s3-request-response 'PUT bucket #`"/,|id|"
+  (values-ref (s3-request-response 'PUT bucket #`"/,|id|" #t
                                    (append
                                     (cond-list [cache-control @ `((cache-control ,cache-control))]
                                                [content-disposition @ `((content-disposition ,content-disposition))]
@@ -207,7 +207,7 @@
 (define (s3-object-get/raw bucket id :key (range #f) (if-modified-since #f)
                            (if-unmodified-since #f) (if-match #f)
                            (if-none-match #f))
-  (values-ref (s3-request-response 'GET bucket #`"/,|id|"
+  (values-ref (s3-request-response 'GET bucket #`"/,|id|" #f
                                    (cond-list [range @ `((range ,range))]
                                               [if-modified-since @ `((if-modified-since ,if-modified-since))]
                                               [if-unmodified-since @ `((if-unmodified-since ,if-unmodified-since))]
@@ -229,7 +229,7 @@
 (define (s3-object-head/raw bucket id  :key (range #f) (if-modified-since #f)
                             (if-unmodified-since #f) (if-match #f)
                             (if-none-match #f))
-  (values-ref (s3-request-response 'HEAD bucket #`"/,|id|"
+  (values-ref (s3-request-response 'HEAD bucket #`"/,|id|" #t
                                    (cond-list [range @ `((range ,range))]
                                               [if-modified-since @ `((if-modified-since ,if-modified-since))]
                                               [if-unmodified-since @ `((if-unmodified-since ,if-unmodified-since))]
@@ -252,7 +252,7 @@
                              (copy-source-if-none-match #f)
                              (copy-source-if-unmodified-since #f)
                              (copy-source-if-modified-since #f))
-  (values-ref (s3-request-response 'PUT bucket #`"/,|dstid|"
+  (values-ref (s3-request-response 'PUT bucket #`"/,|dstid|" #t
                                    (append `(("x-amz-copy-source" ,src))
                                            (cond-list [acl @ `((x-amz-acl ,acl))]
                                                       [metadata-directive @ `((x-amz-metadata-directive ,metadata-directive))]
@@ -268,7 +268,7 @@
     sxml))
 
 (define (s3-object-delete/raw! bucket id :key (mfa #f))
-  (values-ref (s3-request-response 'DELETE bucket #`"/,|id|"
+  (values-ref (s3-request-response 'DELETE bucket #`"/,|id|" #t
                                    (cond-list [mfa @ `(x-amz-mfa ,mfa)]))
               2 1))
 
@@ -279,7 +279,8 @@
 ;; Returns status, headers, and body in sxml.
 ;; Most errors are handled, except HEAD request, in which non-200 status
 ;; are returned as is.
-(define (s3-request-response method bucket uri headers :optional (body #f))
+(define (s3-request-response method bucket uri parse-result? 
+                             :optional (headers '()) (body #f))
   (define reqproc
     (or (assoc-ref `((GET . ,http-get)
                      (HEAD . ,http-head)
@@ -300,8 +301,9 @@
       [(HEAD) (values status hdrs #f)]
       [else
        (if (#/^20.$/ status)
-           (if (member (assoc-ref hdrs "content-type")
-                       '(("text/plain") ("binary/octet-stream")))
+           (if (or (not parse-result?)
+                   (member (assoc-ref hdrs "content-type")
+                           '(("text/plain") ("binary/octet-stream"))))
                (values status hdrs body)
                (let1 sxml (safe-parse-xml body status hdrs)
                  (values status hdrs sxml)))
