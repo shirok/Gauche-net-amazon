@@ -2,9 +2,12 @@
 (use net.amazon.s3)
 (use gauche.parseopt)
 (use gauche.parameter)
+(use gauche.sequence)
+(use srfi-1)
 (use srfi-13)
 (use srfi-19)
 (use util.match)
+(use util.list)
 (use file.util)
 (use sxml.sxpath)
 
@@ -178,15 +181,81 @@
         (format #t "     ~15a  ~a\n" perm grantee)))))
 
 (define (no-bucket :optional (msg ""))
-  (print "No bucket specified" msg "."))
+  (errorf "No bucket specified~a" msg))
 
 ;;
 ;; Lister
 ;;
 
-;(define-command (ls . args)
-;  "ls "
+(define-command (ls . args)
+  "ls [-l][-c COUNT][-s START] [pattern]\n\
+  Lists remote objects and/or local files matching PATTERNs.  PATTERN can be\n\
+  a remote object by BUCKET//NAME or //NAME, optionally followed by '*',\n\
+  or just a glob pattern that are applied to local filesystem.\n\
+  Options:
+  -l        (long) Display more info per object.
+  -c COUNT  Limit the number of listed objects by COUNT.  Only effective for
+            remote objects
+  -s START  Skip START objects before listing.  Only effective for remote
+            objects."
+  (let-args args ([long "l"]
+                  [count "c=i"]
+                  [start "s=i"] . pattern)
+    (if (null? pattern)
+      (ls-local (glob "*") long)
+      (receive (bucket path) (parse-path (car pattern))
+        (if (eq? bucket 'local)
+          (ls-local (if (file-is-directory? path)
+                      (glob #`",|path|/*")
+                      (glob path))
+                    long)
+          (ls-remote bucket path long count start))))))
 
+(define (parse-path path)
+  (receive (bucket name) (string-scan path "//" 'both)
+    (cond [(not bucket) (values 'local path)]
+          [(string-null? bucket)
+           (unless *current-bucket* (no-bucket))
+           (values *current-bucket* name)]
+          [else (values bucket name)])))
+
+(define (ls-local files long)
+  ;; TODO: support long option
+  (ls-multicolumn files))
+
+(define (ls-multicolumn files)
+  (let* ([maxw (+ 1 (apply max (map string-length files)))]
+         [cols (quotient 80 maxw)] ; TODO: check screen width
+         [rows (ceiling (/ (length files) cols))]
+         [colw (floor (/ 80 cols))])
+    (let do-row ([collis (slices files rows #t)])
+      (unless (every null? collis)
+        (let do-column ([c collis])
+          (match c
+            [() (newline)]
+            [((#f . _) . _) (newline)]
+            [((x . _) . rest) (format #t "~va" colw x) (do-column rest)]))
+        (do-row (map cdr collis))))))
+
+(define (ls-remote bucket path long count start)
+  (if long
+    (ls-long-remote
+     (s3-object-list bucket :prefix path :max-keys count))
+    (ls-multicolumn
+     (s3-object-list/key bucket :prefix path :max-keys count))))
+
+(define (ls-long-remote objs)
+  (let ([ow (apply max 5 (map (.$ string-length s3obj-owner-display-name) objs))]
+        [sw (apply max 6 (map (.$ string-length x->string s3obj-size) objs))])
+    (dolist [obj objs]
+      (format #t "~a ~va ~vd ~12a ~a\n"
+              (or (and-let* ([sc (s3obj-storage-class obj)])
+                    (string-ref sc 0))            ;usually 'S' or 'R'
+                  "-")
+              ow (s3obj-owner-display-name obj)
+              sw (s3obj-size obj)
+              (ls-date (s3obj-last-modified obj))
+              (s3obj-key obj)))))
 
 '(define (run-cli)
   (define (usage str)
