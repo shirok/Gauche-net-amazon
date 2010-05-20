@@ -27,6 +27,7 @@
           s3-bucket-create!  s3-bucket-create/raw!
           s3-bucket-delete!  s3-bucket-delete/raw!
           s3-bucket-location s3-bucket-location/raw
+                             s3-bucket-acl/raw
           s3-object-list     s3-object-list/raw
           s3-object-get      s3-object-get/raw
           s3-object-head     s3-object-head/raw
@@ -108,6 +109,9 @@
 
 (define (s3-bucket-location/raw bucket)
   (values-ref (s3-request-response 'GET bucket "/?location" '()) 2 1))
+
+(define (s3-bucket-acl/raw bucket)
+  (values-ref (s3-request-response 'GET bucket "/?acl" '()) 2 1))
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
