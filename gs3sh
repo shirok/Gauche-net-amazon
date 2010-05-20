@@ -89,6 +89,14 @@
     (date->string date "~b ~e  ~Y")
     (date->string date "~b ~e ~H:~M")))
 
+(define (parse-path path)
+  (receive (bucket name) (string-scan path "//" 'both)
+    (cond [(not bucket) (values 'local path)]
+          [(string-null? bucket)
+           (unless *current-bucket* (no-bucket))
+           (values *current-bucket* name)]
+          [else (values bucket name)])))
+
 ;;;
 ;;; Commands
 ;;;
@@ -211,14 +219,6 @@
                     long)
           (ls-remote bucket path long count start))))))
 
-(define (parse-path path)
-  (receive (bucket name) (string-scan path "//" 'both)
-    (cond [(not bucket) (values 'local path)]
-          [(string-null? bucket)
-           (unless *current-bucket* (no-bucket))
-           (values *current-bucket* name)]
-          [else (values bucket name)])))
-
 (define (ls-local files long)
   ;; TODO: support long option
   (ls-multicolumn files))
@@ -256,6 +256,19 @@
               sw (s3obj-size obj)
               (ls-date (s3obj-last-modified obj))
               (s3obj-key obj)))))
+
+;;
+;; Getting object
+;;
+
+(define-command (cat . args)
+  "cat [path ...]\n\
+  Shows the content of object specified by PATHs."
+  (dolist [arg args]
+    (receive (bucket path) (parse-path arg)
+      (if (eq? bucket 'local)
+        (call-with-input-file path (cut copy-port <> (current-output-port)))
+        (display (s3-object-get bucket path))))))
 
 '(define (run-cli)
   (define (usage str)
