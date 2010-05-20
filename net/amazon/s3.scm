@@ -4,9 +4,8 @@
 
 (define-module net.amazon.s3
   (use gauche.sequence)
-  (use gauche.experimental.ref)
+  (use gauche.record)
   (use gauche.experimental.app)
-  (use gauche.experimental.lamb)
   (use srfi-1)
   (use srfi-13)
   (use srfi-19)
@@ -28,12 +27,17 @@
           s3-bucket-delete!  s3-bucket-delete/raw!
           s3-bucket-location s3-bucket-location/raw
                              s3-bucket-acl/raw
-          s3-object-list     s3-object-list/raw
+          s3-object-list     s3-object-list/key s3-object-list/raw
           s3-object-get      s3-object-get/raw
           s3-object-head     s3-object-head/raw
           s3-object-put!     s3-object-put/raw!
           s3-object-copy!    s3-object-copy/raw!
           s3-object-delete!  s3-object-delete/raw!
+
+          s3obj s3obj? s3obj-key s3obj-last-modified s3obj-etag
+          s3obj-size s3obj-owner-id s3obj-owner-display-name
+          s3obj-storage-class
+          
           s3-auth-header-value
           s3-signature s3-sign-string s3-string-to-sign))
 (select-module net.amazon.s3)
@@ -115,14 +119,36 @@
 
 ;; Objects ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (s3-object-list bucket :key (prefix #f) (marker #f) (max-keys #f))
-  (receive (sxml _) (s3-object-list/raw bucket
-                                         :prefix prefix :marker marker
-                                         :max-keys max-keys)
+;; Returns just names of objects
+(define (s3-object-list/key bucket . opts)
+  (receive (sxml _) (apply s3-object-list/raw bucket opts)
     ((sxpath '(// aws:Key *text*)) sxml)))
 
+(define-record-type s3obj #t #t
+  key                                   ;string
+  last-modified                         ;#<date>
+  etag                                  ;string
+  size                                  ;integer
+  owner-id                              ;string
+  owner-display-name                    ;string
+  storage-class                         ;string
+  )
+
+(define (s3-object-list bucket . opts)
+  (receive (sxml _) (apply s3-object-list/raw bucket opts)
+    (map (^f (make-s3obj ((if-car-sxpath '(// aws:Key *text*)) f)
+                         (iso-8601-date->date
+                          ((if-car-sxpath '(// aws:LastModified *text*)) f))
+                         ((if-car-sxpath '(// aws:ETag *text*)) f)
+                         (x->integer
+                          ((if-car-sxpath '(// aws:Size *text*)) f))
+                         ((if-car-sxpath '(// aws:Owner aws:ID *text*)) f)
+                         ((if-car-sxpath '(// aws:Owner aws:DisplayName *text*)) f)
+                         ((if-car-sxpath '(// aws:StorageClass *text*)) f)))
+         ((sxpath '(// aws:Contents)) sxml))))
+
 (define (s3-object-list/raw bucket :key (prefix #f) (marker #f)
-                                               (max-keys #f) (delimiter #f))
+                            (max-keys #f) (delimiter #f))
   (let1 q (http-compose-query "/"
                               (cond-list [prefix @ `((prefix ,prefix))]
                                          [marker @ `((marker ,marker))]
