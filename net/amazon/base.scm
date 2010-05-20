@@ -42,7 +42,7 @@
 ;; sets up those parameters if they exist,
 ;; then returns the content of the config file.
 
-(define (aws-read-config :optional config-file)
+(define (aws-read-config :optional (config-file #f))
   (let* ([cfile (or config-file (build-path (home-directory) ".awsconfig"))]
          [params (or (file->sexp-list cfile :if-does-not-exist #f) '())])
     (and-let* ([p (assq 'aws-access-key-id params)])
